@@ -1,13 +1,32 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import Select from 'react-select';
+import Modal from 'react-modal';
 
 const PhotoUploader = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const [annotations, setAnnotations] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [modalIsOpen, setModalIsOpen] = useState(false);
+  const [currentAnnotation, setCurrentAnnotation] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPoint, setStartPoint] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    // Fetch products from API
+    const fetchProducts = async () => {
+      try {
+        const response = await axios.get('https://strefa.indigo-nails.com/api/products');
+        setProducts(response.data.map(product => ({ value: product.id, label: product.name })));
+      } catch (error) {
+        console.error('Error fetching products:', error);
+      }
+    };
+    fetchProducts();
+  }, []);
 
   const handleFileChange = (e) => {
     let file = e.target.files[0];
@@ -37,10 +56,8 @@ const PhotoUploader = () => {
     const y = e.clientY - rect.top;
     setIsDrawing(false);
 
-    const product = prompt('Enter product name:');
-    const description = prompt('Enter product description:');
-
-    setAnnotations([...annotations, { startX: startPoint.x, startY: startPoint.y, endX: x, endY: y, product, description }]);
+    setCurrentAnnotation({ startX: startPoint.x, startY: startPoint.y, endX: x, endY: y });
+    setModalIsOpen(true);
   };
 
   const handleMouseMove = (e) => {
@@ -69,6 +86,8 @@ const PhotoUploader = () => {
         context.strokeStyle = 'blue';
         context.lineWidth = 2;
         context.strokeRect(annotation.startX, annotation.startY, annotation.endX - annotation.startX, annotation.endY - annotation.startY);
+        context.fillStyle = 'blue';
+        context.fillText(annotation.product.label, annotation.startX, annotation.startY - 5);
       });
     };
   };
@@ -76,7 +95,13 @@ const PhotoUploader = () => {
   const handleUpload = async () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
-    formData.append('annotations', JSON.stringify(annotations));
+    formData.append('annotations', JSON.stringify(annotations.map(annotation => ({
+      startX: annotation.startX,
+      startY: annotation.startY,
+      endX: annotation.endX,
+      endY: annotation.endY,
+      productId: annotation.product.value,
+    }))));
 
     try {
       const response = await axios.post('https://strefa.indigo-nails.com/api/upload', formData, {
@@ -87,6 +112,16 @@ const PhotoUploader = () => {
       console.log(response.data);
     } catch (error) {
       console.error('There was an error uploading the file!', error);
+    }
+  };
+
+  const handleModalSubmit = () => {
+    if (selectedProduct) {
+      setAnnotations([...annotations, { ...currentAnnotation, product: selectedProduct }]);
+      setSelectedProduct(null);
+      setModalIsOpen(false);
+    } else {
+      alert('Please select a product');
     }
   };
 
@@ -114,12 +149,27 @@ const PhotoUploader = () => {
           <ul>
             {annotations.map((annotation, index) => (
               <li key={index}>
-                {annotation.product} - {annotation.description} ({annotation.startX}, {annotation.startY}) to ({annotation.endX}, {annotation.endY})
+                {annotation.product.label} ({annotation.startX}, {annotation.startY}) to ({annotation.endX}, {annotation.endY})
               </li>
             ))}
           </ul>
         </div>
       )}
+      <Modal
+        isOpen={modalIsOpen}
+        onRequestClose={() => setModalIsOpen(false)}
+        contentLabel="Select Product"
+      >
+        <h2>Select Product</h2>
+        <Select
+          value={selectedProduct}
+          onChange={setSelectedProduct}
+          options={products}
+          placeholder="Select a product"
+          isClearable
+        />
+        <button onClick={handleModalSubmit}>Submit</button>
+      </Modal>
     </div>
   );
 };
